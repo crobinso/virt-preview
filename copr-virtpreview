@@ -115,10 +115,13 @@ def determine_packages_to_update(koji_verrels, built_verrels):
         # Split the dist part off the end of the verrel
         built_verrel = built_verrels.get(package_name, '').rsplit(".", 1)[0]
         koji_verrel = koji_verrel.rsplit(".", 1)[0]
-
-        # build_verrel from copr will have epoch, strip it out
+        # built_verrel from copr will have epoch, strip it out
         built_verrel = re.sub("-[0-9]+:", "-", built_verrel)
-        if built_verrel.rsplit(".", 1)[0] != koji_verrel.rsplit(".", 1)[0]:
+
+        cmd = ("rpmdev-vercmp %s %s > /dev/null 2>&1" %
+                (built_verrel, koji_verrel))
+
+        if subprocess.getstatusoutput(cmd)[0] == 12:
             need_update[package_name] = koji_verrel
 
     if not need_update:
