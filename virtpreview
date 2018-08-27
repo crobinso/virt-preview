@@ -101,8 +101,8 @@ def get_koji_latest_verrels():
     """
     verrels = {}
     for package_name in PACKAGE_NAMES:
-        cmd = "koji latest-build --quiet rawhide %s" % package_name
-        out = subprocess.check_output(cmd, shell=True)
+        cmd = ["koji", "latest-build", "--quiet", "rawhide", package_name]
+        out = subprocess.check_output(cmd)
         verrels[package_name] = out.split()[0].decode("utf-8")
 
     return verrels
