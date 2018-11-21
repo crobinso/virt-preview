@@ -174,6 +174,9 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Helper for maintaining virt-preview repo")
 
+    parser.add_argument("--rebuild", action="store_true",
+            help="Force rebuild for all packages, like when a new chroot "
+                 "is added.")
     parser.add_argument("-d", "--debug", action="store_true",
             help="Debug output")
 
@@ -195,15 +198,19 @@ def main():
     options = parse_args()
     setup_logging(options.debug)
 
-    print("Checking koji for latest rawhide verrels...")
-    koji_verrels = get_koji_latest_verrels()
-    log.debug("Koji verrels: %s", pprint.pformat(koji_verrels))
+    if options.rebuild:
+        need_update = PACKAGE_NAMES
+    else:
+        print("Checking koji for latest rawhide verrels...")
+        koji_verrels = get_koji_latest_verrels()
+        log.debug("Koji verrels: %s", pprint.pformat(koji_verrels))
 
-    print("Checking copr for latest built verrels...")
-    built_verrels = COPR.get_built_verrels()
-    log.debug("Built verrels: %s", pprint.pformat(built_verrels))
+        print("Checking copr for latest built verrels...")
+        built_verrels = COPR.get_built_verrels()
+        log.debug("Built verrels: %s", pprint.pformat(built_verrels))
 
-    need_update = determine_packages_to_update(koji_verrels, built_verrels)
+        need_update = determine_packages_to_update(koji_verrels, built_verrels)
+
     if not need_update:
         return
 
