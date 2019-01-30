@@ -24,6 +24,8 @@ PACKAGE_NAMES = [
     "edk2",
     "ipxe",
     "qemu",
+    "osinfo-db",
+    "libosinfo",
     "libvirt",
     "libvirt-python",
     "virt-manager",
