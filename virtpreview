@@ -107,7 +107,7 @@ def get_koji_latest_verrels():
         proc = subprocess.Popen(cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT)
-        out, ignore = proc.communicate()
+        out, dummy = proc.communicate()
         retcode = proc.wait()
         if retcode != 0:
             print("%s failed with ret=%s: %s" % (cmd, proc.wait(), out))
