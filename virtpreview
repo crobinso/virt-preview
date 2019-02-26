@@ -123,11 +123,17 @@ def determine_packages_to_update(koji_verrels, built_verrels):
 
     :returns: mapping of package_name:short verrel
     """
+    def _remove_dist(s):
+        pattern = r"\.fc\d\d"
+        if not re.search(pattern, s):
+            print("verrel=%s doesn't contain pattern=%s" % (s, pattern))
+            sys.exit(1)
+        return re.sub(pattern, "", s)
+
     need_update = {}
     for package_name, koji_verrel in koji_verrels.items():
-        # Split the dist part off the end of the verrel
-        built_verrel = built_verrels.get(package_name, '').rsplit(".", 1)[0]
-        koji_verrel = koji_verrel.rsplit(".", 1)[0]
+        built_verrel = _remove_dist(built_verrels.get(package_name, ''))
+        koji_verrel = _remove_dist(koji_verrel)
         # built_verrel from copr will have epoch, strip it out
         built_verrel = re.sub("-[0-9]+:", "-", built_verrel)
 
