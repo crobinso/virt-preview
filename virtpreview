@@ -19,7 +19,6 @@ log = logging.getLogger(__name__)
 PACKAGE_NAMES = [
     "openbios",
     "seabios",
-    "sgabios",
     "SLOF",
     "edk2",
     "ipxe",
