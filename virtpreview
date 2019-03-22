@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import datetime
 import logging
 import pprint
 import re
@@ -9,6 +10,7 @@ import sys
 import time
 
 import copr
+import rpm
 
 
 log = logging.getLogger(__name__)
@@ -30,12 +32,21 @@ PACKAGE_NAMES = [
     "virt-manager",
 ]
 
-# Mapping of package_name:regex for archs to exclude for each package.
+# Mapping of regex:package_names for packages to exclude per chroot.
 # Otherwise copr doesn't take Exc*Arch into account and will report
 # build failure
 EXCLUDE_ARCH = {
-    "edk2": "ppc64",
+    r".*ppc64.*": ["edk2"]
 }
+
+
+def packages_wanted_for_chroot(chrootname):
+    for regex, exclude in EXCLUDE_ARCH.items():
+        if re.match(regex, chrootname):
+            break
+    else:
+        exclude = []
+    return [p for p in PACKAGE_NAMES if p not in exclude]
 
 
 def delay(msg, secs):
@@ -46,47 +57,116 @@ def delay(msg, secs):
         time.sleep(1)
 
 
-class _Copr(object):
+def _get_all_objects(project, funcname):
+    """
+    copr get_* apis only return max 100 objects. If we have more than
+    that, we need to call the function multiple times with an offset=
+    value to scoop them all up
+    """
+    ret = []
+    func = getattr(project, funcname)
+    offset = 0
+    while True:
+        tmp = func(offset=offset)
+        ret.extend(tmp)
+        if len(tmp) < 100:
+            break
+        offset += 100
+    return ret
+
+
+class Copr(object):
     """
     Wrapper class for talking to copr
     """
+    PROJECT_NAME = "@virtmaint-sig/virt-preview"
+
     def __init__(self):
-        self.project_name = "@virtmaint-sig/virt-preview"
         self._client = copr.ClientV2.create_from_file_config()
         self._project = self._client.projects.get_list(
                 name="virt-preview", owner="@virtmaint-sig")[0]
-        self._chroots = []
+
+        self._chroots = self._project.get_project_chroot_list()
+        self._tasks = _get_all_objects(self._project,
+                "get_build_tasks")
+        self._builds = {b.id: b for b in
+                _get_all_objects(self._project, "get_builds")}
+
+        for task in self._tasks:
+            if task.state == "running":
+                print("Some tasks still in 'running' state. "
+                      "not performing any builds.")
+                sys.exit(1)
+
+    def _get_latest_builds(self):
+        """
+        Ask copr for a list of latest build objects
+
+        :returns: dict of (chroot_name, {package_name: latest_build})
+        """
+        chroot_buildids = {}
+        for task in self._tasks:
+            if task.state != "succeeded":
+                continue
+            if task.chroot_name not in chroot_buildids:
+                chroot_buildids[task.chroot_name] = set()
+            chroot_buildids[task.chroot_name].add(task.build_id)
+
+        chroot_builds = {}
+        for chroot_name in [c.name for c in self._chroots]:
+            builds = {}
+            chroot_builds[chroot_name] = builds
+            for build_id in reversed(sorted(chroot_buildids[chroot_name])):
+                build = self._builds[build_id]
+                if build.package_name in builds:
+                    continue
+                builds[build.package_name] = build
+
+        return chroot_builds
+
 
     def get_built_verrels(self):
         """
-        Ask copr for a list of latest built verrels
-
-        :returns: dict of package_name:verrel
+        Transpose _get_latest_builds output into a a dict of
+        (chroot_name, {package_name: latest verrel})
         """
-        verrels = {}
-        for build in self._project.get_builds():
-            if build.state != "succeeded":
+        chroot_builds = self._get_latest_builds()
+        chroot_verrels = chroot_builds.copy()
+        for builds in chroot_verrels.values():
+            for package_name in list(builds.keys()):
+                build = builds[package_name]
+                verrel = build.package_name + "-" + build.package_version
+                builds[package_name] = verrel
+        return chroot_verrels
+
+
+    def get_old_builds(self):
+        chroot_builds = self._get_latest_builds()
+        latest_buildids = set()
+        for builds in chroot_builds.values():
+            for package_name in list(builds.keys()):
+                latest_buildids.add(builds[package_name].id)
+
+        old_builds = []
+        for build in self._builds.values():
+            if build.id in latest_buildids:
                 continue
-            if build.package_name in verrels:
+
+            # Remove old failed/cancelled builds
+            if build.state in ["canceled", "failed"]:
+                start = datetime.datetime.fromtimestamp(build.submitted_on)
+                if (datetime.datetime.now() - start).days < 14:
+                    continue
+            else:
+                # We could do this, will help avoid some issues when
+                # subpackages disappear:
+                # https://bugzilla.redhat.com/show_bug.cgi?id=1652003
+                # But it will also kill access to old builds the second a
+                # chroot disappears which is not the most friendly thing.
                 continue
-            verrel = build.package_name + "-" + build.package_version
-            verrels[build.package_name] = verrel
+            old_builds.append(build.id)
 
-        return verrels
-
-    def get_chroots(self):
-        """
-        Return the list of chroots used by the project
-
-        :returns: list of strings
-        """
-        if not self._chroots:
-            for chroot in self._project.get_project_chroot_list():
-                self._chroots.append(chroot.name)
-        return self._chroots
-
-
-COPR = _Copr()
+        return old_builds
 
 
 ####################
@@ -116,58 +196,59 @@ def get_koji_latest_verrels():
     return verrels
 
 
-def determine_packages_to_update(koji_verrels, built_verrels):
+def determine_packages_to_update(koji_verrels, chroot_verrels):
     """
     Check what packages need updating from latest koji builds compared
     to already built verrels
-
-    :returns: mapping of package_name:short verrel
     """
     def _remove_dist(s):
+        """
+        Strip dist (ex: .fc30) off end of verrel string
+        """
         pattern = r"\.fc\d\d"
         if not re.search(pattern, s):
             print("verrel=%s doesn't contain pattern=%s" % (s, pattern))
             sys.exit(1)
         return re.sub(pattern, "", s)
 
-    need_update = {}
+    update_package_chroots = {}
     for package_name, koji_verrel in koji_verrels.items():
-        built_verrel = _remove_dist(built_verrels.get(package_name, ''))
         koji_verrel = _remove_dist(koji_verrel)
-        # built_verrel from copr will have epoch, strip it out
-        built_verrel = re.sub("-[0-9]+:", "-", built_verrel)
+        need_update = set()
 
-        cmd = ("rpmdev-vercmp %s %s > /dev/null 2>&1" %
-                (built_verrel, koji_verrel))
+        for chroot_name, built_verrels in chroot_verrels.items():
+            if package_name not in packages_wanted_for_chroot(chroot_name):
+                continue
+            if package_name not in built_verrels:
+                need_update.add(chroot_name)
+                continue
 
-        log.debug("Comparing stripped verrels: built=%s koji=%s",
-                built_verrel, koji_verrel)
+            built_verrel = _remove_dist(built_verrels[package_name])
+            # built_verrel from copr will have epoch, strip it out
+            built_verrel = re.sub("-[0-9]+:", "-", built_verrel)
 
-        if subprocess.getstatusoutput(cmd)[0] == 12:
-            need_update[package_name] = koji_verrel
+            ver1 = ["1"] + built_verrel.rsplit("-", 1)
+            ver2 = ["1"] + koji_verrel.rsplit("-", 1)
 
-    if not need_update:
-        print("Everything is up to date, nothing to build")
-    else:
-        print("\nThe following packages need updating:\n")
-        for p in sorted(need_update):
-            print("* %s" % p)
+            log.debug("Comparing stripped verrels: "
+                    "chroot_name=%s built=%s koji=%s", chroot_name, ver1, ver2)
+            cmpret = rpm.labelCompare(ver1, ver2)
+            if cmpret < 0:
+                need_update.add(chroot_name)
 
-        print()
-        delay("Proceeding in 10 seconds, ctrl-c to exit...", 10)
-        print()
-    return need_update
+        if need_update:
+            update_package_chroots[package_name] = need_update
+
+    return update_package_chroots
 
 
-def build_package(package_name):
+def build_package(package_name, chroots):
     distgiturl = "https://src.fedoraproject.org/rpms/%s" % package_name
 
-    cmd = ["copr-cli", "buildscm", COPR.project_name,
+    cmd = ["copr-cli", "buildscm", Copr.PROJECT_NAME,
             "--clone-url", distgiturl]
-    if package_name in EXCLUDE_ARCH:
-        for chroot in COPR.get_chroots():
-            if not re.search(EXCLUDE_ARCH[package_name], chroot):
-                cmd += ["--chroot", chroot]
+    for chroot in chroots:
+        cmd += ["--chroot", chroot]
 
     print("\n\n+ %s" % " ".join(cmd))
     returncode = subprocess.call(cmd)
@@ -182,9 +263,6 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Helper for maintaining virt-preview repo")
 
-    parser.add_argument("--rebuild", action="store_true",
-            help="Force rebuild for all packages, like when a new chroot "
-                 "is added.")
     parser.add_argument("-d", "--debug", action="store_true",
             help="Debug output")
 
@@ -202,32 +280,37 @@ def setup_logging(debug):
     del(logging)
 
 
-def main():
-    options = parse_args()
-    setup_logging(options.debug)
+def build_packages():
+    print("Checking koji for latest rawhide verrels...")
+    coprapi = Copr()
+    print("Checking copr for latest built verrels...")
+    chroot_verrels = coprapi.get_built_verrels()
+    log.debug("Chroot verrels:\n%s", pprint.pformat(chroot_verrels))
 
-    if options.rebuild:
-        need_update = PACKAGE_NAMES
-    else:
-        print("Checking koji for latest rawhide verrels...")
-        koji_verrels = get_koji_latest_verrels()
-        log.debug("Koji verrels: %s", pprint.pformat(koji_verrels))
+    koji_verrels = get_koji_latest_verrels()
+    log.debug("Koji verrels:\n%s", pprint.pformat(koji_verrels))
 
-        print("Checking copr for latest built verrels...")
-        built_verrels = COPR.get_built_verrels()
-        log.debug("Built verrels: %s", pprint.pformat(built_verrels))
-
-        need_update = determine_packages_to_update(koji_verrels, built_verrels)
-
-    if not need_update:
+    update_package_chroots = determine_packages_to_update(
+            koji_verrels, chroot_verrels)
+    if not update_package_chroots:
+        print("Everything is up to date, nothing to build")
         return
+
+    print("\nThe following packages need updating:\n")
+    for p in sorted(update_package_chroots):
+        print("* %s: %s" % (p, update_package_chroots[p]))
+
+    print()
+    delay("Proceeding in 10 seconds, ctrl-c to exit...", 10)
+    print()
 
     failures = []
     for package_name in PACKAGE_NAMES:
-        if package_name not in need_update:
+        if package_name not in update_package_chroots:
             continue
 
-        build_success = build_package(package_name)
+        chroots = update_package_chroots[package_name]
+        build_success = build_package(package_name, chroots)
         if not build_success:
             failures.append(package_name)
 
@@ -235,6 +318,25 @@ def main():
         print("\n\nTHE FOLLOWING BUILDS FAILED: %s" % failures)
         return 1
     return 0
+
+
+def remove_old_builds():
+    coprapi = Copr()
+    old_builds = coprapi.get_old_builds()
+    if old_builds:
+        print("Deleting old cancelled/failed builds...")
+    for build_id in old_builds:
+        cmd = ["copr-cli", "delete-build", str(build_id)]
+        print("+ %s" % " ".join(cmd))
+        subprocess.call(cmd)
+
+
+def main():
+    options = parse_args()
+    setup_logging(options.debug)
+
+    build_packages()
+    remove_old_builds()
 
 
 if __name__ == '__main__':
