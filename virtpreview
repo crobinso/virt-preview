@@ -316,8 +316,7 @@ def build_packages():
 
     if failures:
         print("\n\nTHE FOLLOWING BUILDS FAILED: %s" % failures)
-        return 1
-    return 0
+        return True
 
 
 def remove_old_builds():
@@ -335,8 +334,10 @@ def main():
     options = parse_args()
     setup_logging(options.debug)
 
-    build_packages()
+    if build_packages():
+        return 1
     remove_old_builds()
+    return 0
 
 
 if __name__ == '__main__':
