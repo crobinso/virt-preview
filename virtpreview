@@ -39,6 +39,17 @@ EXCLUDE_ARCH = {
     r".*ppc64.*": ["edk2"]
 }
 
+# If a build is failing, put the package name here and it will be skipped
+# for all chroots. Set a cal reminder for a few weeks to check if its building
+TEMPSKIP = [
+]
+
+# Use when I want to disable some chroots before they go EOL. If
+# I remove them entirely then users can't access the content anymore AFAICT
+SKIPCHROOTS = [
+    r"fedora-28.*",
+]
+
 
 def packages_wanted_for_chroot(chrootname):
     for regex, exclude in EXCLUDE_ARCH.items():
@@ -75,6 +86,17 @@ def _get_all_objects(project, funcname):
     return ret
 
 
+def _filter_chroots(chroots):
+    ret = []
+    for chroot in chroots:
+        for skipchrootregex in SKIPCHROOTS:
+            if re.match(skipchrootregex, chroot.name):
+                break
+        else:
+            ret.append(chroot)
+    return ret
+
+
 class Copr(object):
     """
     Wrapper class for talking to copr
@@ -87,6 +109,10 @@ class Copr(object):
                 name="virt-preview", owner="@virtmaint-sig")[0]
 
         self._chroots = self._project.get_project_chroot_list()
+        self._filtered_chroots = _filter_chroots(self._chroots)
+        log.debug("chroot list: %s", [c.name for c in self._chroots])
+        log.debug("Filtered chroot list: %s",
+                [c.name for c in self._filtered_chroots])
         self._tasks = _get_all_objects(self._project,
                 "get_build_tasks")
         self._builds = {b.id: b for b in
@@ -98,7 +124,7 @@ class Copr(object):
                       "not performing any builds.")
                 sys.exit(1)
 
-    def _get_latest_builds(self):
+    def _get_latest_builds(self, filter_chroots):
         """
         Ask copr for a list of latest build objects
 
@@ -113,7 +139,11 @@ class Copr(object):
             chroot_buildids[task.chroot_name].add(task.build_id)
 
         chroot_builds = {}
-        for chroot_name in [c.name for c in self._chroots]:
+        chroots = self._chroots
+        if filter_chroots:
+            chroots = self._filtered_chroots
+
+        for chroot_name in [c.name for c in chroots]:
             builds = {}
             chroot_builds[chroot_name] = builds
             for build_id in reversed(sorted(chroot_buildids[chroot_name])):
@@ -130,7 +160,7 @@ class Copr(object):
         Transpose _get_latest_builds output into a a dict of
         (chroot_name, {package_name: latest verrel})
         """
-        chroot_builds = self._get_latest_builds()
+        chroot_builds = self._get_latest_builds(filter_chroots=True)
         chroot_verrels = chroot_builds.copy()
         for builds in chroot_verrels.values():
             for package_name in list(builds.keys()):
@@ -141,7 +171,7 @@ class Copr(object):
 
 
     def get_old_builds(self):
-        chroot_builds = self._get_latest_builds()
+        chroot_builds = self._get_latest_builds(filter_chroots=False)
         latest_buildids = set()
         for builds in chroot_builds.values():
             for package_name in list(builds.keys()):
@@ -307,6 +337,9 @@ def build_packages():
     failures = []
     for package_name in PACKAGE_NAMES:
         if package_name not in update_package_chroots:
+            continue
+        if package_name in TEMPSKIP:
+            print("TEMPSKIPing package=%s" % package_name)
             continue
 
         chroots = update_package_chroots[package_name]
