@@ -146,7 +146,8 @@ class Copr(object):
         for chroot_name in [c.name for c in chroots]:
             builds = {}
             chroot_builds[chroot_name] = builds
-            for build_id in reversed(sorted(chroot_buildids[chroot_name])):
+            for build_id in reversed(
+                    sorted(chroot_buildids.get(chroot_name, []))):
                 build = self._builds[build_id]
                 if build.package_name in builds:
                     continue
