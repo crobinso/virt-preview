@@ -27,6 +27,7 @@ PACKAGE_NAMES = [
     "qemu",
     "osinfo-db",
     "libosinfo",
+    "osinfo-db-tools",
     "libvirt",
     "libvirt-python",
     "virt-manager",
