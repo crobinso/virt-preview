@@ -24,6 +24,7 @@ PACKAGE_NAMES = [
     "SLOF",
     "edk2",
     "ipxe",
+    "virglrenderer",
     "qemu",
     "osinfo-db",
     "libosinfo",
