@@ -24,7 +24,8 @@ PACKAGE_NAMES = [
     "SLOF",
     "edk2",
     "ipxe",
-    "virglrenderer",
+    # Disable virgl, current f32 build requiers new epoxy
+    # "virglrenderer",
     "qemu",
     "osinfo-db",
     "libosinfo",
