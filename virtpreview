@@ -52,6 +52,7 @@ TEMPSKIP = [
 # I remove them entirely then users can't access the content anymore AFAICT
 SKIPCHROOTS = [
     r"fedora-28.*",
+    r"fedora-29.*",
 ]
 
 
