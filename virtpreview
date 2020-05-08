@@ -52,6 +52,7 @@ TEMPSKIP = [
 SKIPCHROOTS = [
     r"fedora-28.*",
     r"fedora-29.*",
+    r"fedora-30.*",
 ]
 
 
