@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import datetime
 import logging
 import pprint
 import re
@@ -176,35 +175,6 @@ class Copr(object):
         return chroot_verrels
 
 
-    def get_old_builds(self):
-        chroot_builds = self._get_latest_builds(filter_chroots=False)
-        latest_buildids = set()
-        for builds in chroot_builds.values():
-            for package_name in list(builds.keys()):
-                latest_buildids.add(builds[package_name].id)
-
-        old_builds = []
-        for build in self._builds.values():
-            if build.id in latest_buildids:
-                continue
-
-            # Remove old failed/cancelled builds
-            if build.state in ["canceled", "failed"]:
-                start = datetime.datetime.fromtimestamp(build.submitted_on)
-                if (datetime.datetime.now() - start).days < 14:
-                    continue
-            else:
-                # We could do this, will help avoid some issues when
-                # subpackages disappear:
-                # https://bugzilla.redhat.com/show_bug.cgi?id=1652003
-                # But it will also kill access to old builds the second a
-                # chroot disappears which is not the most friendly thing.
-                continue
-            old_builds.append(build.id)
-
-        return old_builds
-
-
 ####################
 # Helper functions #
 ####################
@@ -358,24 +328,12 @@ def build_packages():
         return True
 
 
-def remove_old_builds():
-    coprapi = Copr()
-    old_builds = coprapi.get_old_builds()
-    if old_builds:
-        print("Deleting old cancelled/failed builds...")
-    for build_id in old_builds:
-        cmd = ["copr-cli", "delete-build", str(build_id)]
-        print("+ %s" % " ".join(cmd))
-        subprocess.call(cmd)
-
-
 def main():
     options = parse_args()
     setup_logging(options.debug)
 
     if build_packages():
         return 1
-    remove_old_builds()
     return 0
 
 
