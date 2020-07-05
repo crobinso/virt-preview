@@ -38,8 +38,16 @@ PACKAGE_NAMES = [
 # Otherwise copr doesn't take Exc*Arch into account and will report
 # build failure
 EXCLUDE_ARCH = {
-    r".*ppc64.*": ["edk2"],
-    r".*aarch64.*": ["openbios"],
+    r".*ppc64.*": [
+        "edk2",  # edk2 doesn't build on ppc64, but this is expected
+    ],
+    r".*aarch64.*": [
+        "openbios",  # openbios doesn't build on aarch64, but this is expected
+        #"edk2",
+        # qemu builds for aarch64 have been failing for weeks 2020-02-07,
+        # figure it out later
+        #"qemu",
+    ],
 }
 
 # If a build is failing, put the package name here and it will be skipped
