@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 
-import copr
+import copr.v3
 import rpm
 
 
@@ -103,7 +103,7 @@ def _filter_chroots(chroots):
     ret = []
     for chroot in chroots:
         for skipchrootregex in SKIPCHROOTS:
-            if re.match(skipchrootregex, chroot.name):
+            if re.match(skipchrootregex, chroot):
                 break
         else:
             ret.append(chroot)
@@ -114,73 +114,54 @@ class Copr(object):
     """
     Wrapper class for talking to copr
     """
-    PROJECT_NAME = "@virtmaint-sig/virt-preview"
+    OWNER_NAME = "@virtmaint-sig"
+    PROJECT_NAME = "virt-preview"
+    CLI_NAME = "%s/%s" % (OWNER_NAME, PROJECT_NAME)
 
     def __init__(self):
-        self._client = copr.ClientV2.create_from_file_config()
-        self._project = self._client.projects.get_list(
-                name="virt-preview", owner="@virtmaint-sig")[0]
+        self._client = copr.v3.Client.create_from_config_file()
+        self._project = self._client.project_proxy.get(
+                ownername=Copr.OWNER_NAME,
+                projectname=Copr.PROJECT_NAME)
 
-        self._chroots = self._project.get_project_chroot_list()
-        self._filtered_chroots = _filter_chroots(self._chroots)
-        log.debug("chroot list: %s", [c.name for c in self._chroots])
-        log.debug("Filtered chroot list: %s",
-                [c.name for c in self._filtered_chroots])
-        self._tasks = _get_all_objects(self._project,
-                "get_build_tasks")
-        self._builds = {b.id: b for b in
-                _get_all_objects(self._project, "get_builds")}
+        unfiltered_chroots = self._project["chroot_repos"].keys()
+        self._chroots = _filter_chroots(unfiltered_chroots)
+        log.debug("Unfiltered chroot list: %s", unfiltered_chroots)
+        log.debug("Filtered chroot list: %s", self._chroots)
 
-        for task in self._tasks:
-            if task.state == "running":
-                print("Some tasks still in 'running' state. "
+        self._builds = self._client.build_proxy.get_list(
+                ownername=Copr.OWNER_NAME,
+                projectname=Copr.PROJECT_NAME)
+
+        for build in self._builds:
+            if build["state"] == "running":
+                print("Some builds still in 'running' state. "
                       "not performing any builds.")
                 sys.exit(1)
 
-    def _get_latest_builds(self, filter_chroots):
+    def get_built_verrels(self):
         """
         Ask copr for a list of latest build objects
 
-        :returns: dict of (chroot_name, {package_name: latest_build})
+        :returns: dict of (chroot_name: {package_name: latest_verrel})
         """
-        chroot_buildids = {}
-        for task in self._tasks:
-            if task.state != "succeeded":
-                continue
-            if task.chroot_name not in chroot_buildids:
-                chroot_buildids[task.chroot_name] = set()
-            chroot_buildids[task.chroot_name].add(task.build_id)
+        # Filter out failed builds
+        builds = [b for b in self._builds if b["state"] == "succeeded"]
+        # Ensure we sort by latest builds
+        builds.sort(key=lambda b: b["id"])
 
-        chroot_builds = {}
-        chroots = self._chroots
-        if filter_chroots:
-            chroots = self._filtered_chroots
+        # Only check for builds in chroots we still care about
+        chroot_verrels = {}
+        for chroot in self._chroots:
+            chroot_verrels[chroot] = {}
 
-        for chroot_name in [c.name for c in chroots]:
-            builds = {}
-            chroot_builds[chroot_name] = builds
-            for build_id in reversed(
-                    sorted(chroot_buildids.get(chroot_name, []))):
-                build = self._builds[build_id]
-                if build.package_name in builds:
-                    continue
-                builds[build.package_name] = build
+        for build in builds:
+            package_name = build["source_package"]["name"]
+            verrel = package_name + "-" + build["source_package"]["version"]
+            for chroot in build["chroots"]:
+                if chroot in chroot_verrels:
+                    chroot_verrels[chroot][package_name] = verrel
 
-        return chroot_builds
-
-
-    def get_built_verrels(self):
-        """
-        Transpose _get_latest_builds output into a a dict of
-        (chroot_name, {package_name: latest verrel})
-        """
-        chroot_builds = self._get_latest_builds(filter_chroots=True)
-        chroot_verrels = chroot_builds.copy()
-        for builds in chroot_verrels.values():
-            for package_name in list(builds.keys()):
-                build = builds[package_name]
-                verrel = build.package_name + "-" + build.package_version
-                builds[package_name] = verrel
         return chroot_verrels
 
 
