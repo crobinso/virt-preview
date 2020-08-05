@@ -241,7 +241,7 @@ def determine_packages_to_update(koji_verrels, chroot_verrels):
 def build_package(package_name, chroots):
     distgiturl = "https://src.fedoraproject.org/rpms/%s" % package_name
 
-    cmd = ["copr-cli", "buildscm", Copr.PROJECT_NAME,
+    cmd = ["copr-cli", "buildscm", Copr.CLI_NAME,
             "--clone-url", distgiturl]
     for chroot in chroots:
         cmd += ["--chroot", chroot]
