@@ -81,24 +81,6 @@ def delay(msg, secs):
         time.sleep(1)
 
 
-def _get_all_objects(project, funcname):
-    """
-    copr get_* apis only return max 100 objects. If we have more than
-    that, we need to call the function multiple times with an offset=
-    value to scoop them all up
-    """
-    ret = []
-    func = getattr(project, funcname)
-    offset = 0
-    while True:
-        tmp = func(offset=offset)
-        ret.extend(tmp)
-        if len(tmp) < 100:
-            break
-        offset += 100
-    return ret
-
-
 def _filter_chroots(chroots):
     ret = []
     for chroot in chroots:
