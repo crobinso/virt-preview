@@ -34,20 +34,14 @@ PACKAGE_NAMES = [
     "virt-manager",
 ]
 
-# Mapping of regex:package_names for packages to exclude per chroot.
+# Mapping of package_name:regex for packages to exclude per chroot.
 # Otherwise copr doesn't take Exc*Arch into account and will report
 # build failure
 EXCLUDE_ARCH = {
-    r".*ppc64.*": [
-        "edk2",  # edk2 doesn't build on ppc64, but this is expected
-    ],
-    r".*aarch64.*": [
-        "openbios",  # openbios doesn't build on aarch64, but this is expected
-        #"edk2",
-        # qemu builds for aarch64 have been failing for weeks 2020-02-07,
-        # figure it out later
-        #"qemu",
-    ],
+    # edk2 ExclusiveArch skips some arches
+    "edk2": [".*ppc64.*", ".*s390.*"],
+    # openbios doesn't build on all arches
+    "openbios": [".*aarch64.*", ".*s390.*"],
 }
 
 # If a build is failing, put the package name here and it will be skipped
@@ -64,13 +58,16 @@ SKIPCHROOTS = [
 ]
 
 
-def packages_wanted_for_chroot(chrootname):
-    for regex, exclude in EXCLUDE_ARCH.items():
-        if re.match(regex, chrootname):
-            break
-    else:
-        exclude = []
-    return [p for p in PACKAGE_NAMES if p not in exclude]
+def package_skip_chroot(package_name, chroot_name):
+    """
+    Return True if we shouldn't build `package_name` for `chroot_name` per
+    `EXCLUDE_ARCH` mappings
+    """
+    skip_regexs = EXCLUDE_ARCH.get(package_name, [])
+    for regex in skip_regexs:
+        if re.match(regex, chroot_name):
+            return True
+    return False
 
 
 def delay(msg, secs):
@@ -195,7 +192,7 @@ def determine_packages_to_update(koji_verrels, chroot_verrels):
         need_update = set()
 
         for chroot_name, built_verrels in chroot_verrels.items():
-            if package_name not in packages_wanted_for_chroot(chroot_name):
+            if package_skip_chroot(package_name, chroot_name):
                 continue
             if package_name not in built_verrels:
                 need_update.add(chroot_name)
