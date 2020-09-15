@@ -207,7 +207,7 @@ def determine_packages_to_update(koji_verrels, chroot_verrels):
 
             log.debug("Comparing stripped verrels: "
                     "chroot_name=%s built=%s koji=%s", chroot_name, ver1, ver2)
-            cmpret = rpm.labelCompare(ver1, ver2)
+            cmpret = rpm.labelCompare(tuple(ver1), tuple(ver2))
             if cmpret < 0:
                 need_update.add(chroot_name)
 
