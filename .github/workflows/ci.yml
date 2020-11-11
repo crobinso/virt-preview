@@ -9,7 +9,7 @@ on:
 jobs:
   # Setup latest Fedora with latest libvirt from virt-preview, build
   # the RPM, verify it installs, run test suite, upload coverage
-  test:
+  build:
     runs-on: ubuntu-latest
     container:
       image: aintdiscole/fedora-copr:latest
