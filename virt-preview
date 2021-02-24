@@ -39,9 +39,13 @@ PACKAGE_NAMES = [
 # build failure
 EXCLUDE_ARCH = {
     # edk2 ExclusiveArch skips some arches
-    "edk2": [".*ppc64.*", ".*s390.*"],
     # openbios doesn't build on all arches
-    "openbios": [".*aarch64.*", ".*s390.*"],
+    # roms require cross-gcc to build but it's unavailable on centos, EPEL
+    "edk2": [".*ppc64.*", ".*s390.*", ".*centos.*"],
+    "openbios": [".*aarch64.*", ".*s390.*", ".*centos.*"],
+    "SLOF": [".*centos.*"],
+    "seabios": [".*centos.*"],
+    "ipxe": [".*centos.*"],
 }
 
 # If a build is failing, put the package name here and it will be skipped
