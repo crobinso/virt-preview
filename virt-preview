@@ -75,6 +75,8 @@ def package_skip_chroot(package_name, chroot_name):
 
 
 def delay(msg, secs):
+    if not sys.stdin.isatty():
+        return
     for sec in range(secs):
         newstr = "\r%s(%s of %s)" % (msg, sec + 1, secs)
         sys.stdout.write(newstr)
