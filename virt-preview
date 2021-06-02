@@ -59,6 +59,8 @@ SKIPCHROOTS = [
     r"fedora-28.*",
     r"fedora-29.*",
     r"fedora-30.*",
+    r"fedora-31.*",
+    r"fedora-32.*",
 ]
 
 
