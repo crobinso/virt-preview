@@ -7,12 +7,10 @@ on:
   - cron: "0 0 * * *" # Run every day at midnight
 
 jobs:
-  # Setup latest Fedora with latest libvirt from virt-preview, build
-  # the RPM, verify it installs, run test suite, upload coverage
   build:
     runs-on: ubuntu-latest
     container:
-      image: aintdiscole/fedora-copr:latest
+      image: fedora:latest
 
     steps:
     - uses: actions/checkout@v2
@@ -21,6 +19,7 @@ jobs:
       env:
           COPR_CONFIG_CONTENT: ${{ secrets.COPR_CONFIG_CONTENT }}
       run: |
+        yum install -y fedora-packager copr-cli
         mkdir $HOME/.config
         echo "$COPR_CONFIG_CONTENT" > $HOME/.config/copr
         ./virt-preview
